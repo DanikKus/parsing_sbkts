@@ -1,0 +1,23 @@
+const allowedVINs = [
+    "4T1BF1FK1CU500608",
+    "KMHFG41EBFA479068",
+    "KNAGN411BCA237574",
+    "KNALM416BFA192527",
+    "KNAGN419BDA403837",
+    "KMHFG41EBCA215184",
+    "4S4BRLMC0B3384802",
+    "KNALN416BEA153040",
+    "WBAZW4109BL828851",
+    "KNALD416BLA218738"
+  ];
+  
+
+  
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+
+
+     const siteVIN = siteData["ИДЕНТИФИКАЦИОННЫЙ НОМЕР (VIN)"];
+    if (allowedVINs.includes(siteVIN)) {
+      console.log("⚠️ VIN найден в списке — ПОВЫШЕНИЕ!");
+      alert("⚠️ VIN найден в списке для повышенного внимания!");
+    }

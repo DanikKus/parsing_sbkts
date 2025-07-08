@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Парсер PTS + PDF</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+  <h1>🚗 Сравнение данных с PTS.gov.kz и PDF</h1>
+
+  <div class="form-section">
+    <label for="siteUrl">🔗 Ссылка на страницу PTS:</label>
+    <input type="text" id="siteUrl" placeholder="https://pts.gov.kz/sbkts/...">
+    <button onclick="fetchFromSite()">Парсить сайт</button>
+  </div>
+
+  <div class="form-section">
+    <label for="pdfFile">📄 Загрузить PDF-документ:</label>
+    <input type="file" id="pdfFile" accept=".pdf">
+    <button onclick="uploadPDF()">Парсить PDF</button>
+  </div>
+
+  <hr>
+
+  <div id="status"></div>
+
+  <!-- КНОПКА ОЧИСТКИ -->
+
+ <div class="toolbar-row">
+  <div class="toolbar-buttons">
+    <button onclick="clearComparison()">🧹 Очистить данные</button>
+    <button onclick="refreshToken()" id="refreshBtn" style="display: none; margin-left: 10px;">🔄 Обновить токен</button>
+    <span id="tokenStatus" style="margin-left: 20px; font-weight: bold; color: red;">Проверка...</span>
+  </div>
+  <div class="info-block">
+    <b>ℹ️ Примечание:</b>
+    <ul>
+      <li>Автор документа не парсится на сайте <b>PTS.gov.kz</b></li>
+      <li>По гибридным и электрическим авто данные могут быть разбросаны по разным полям (<b>электромашина</b>, <b>электродвигатель</b>)</li>
+      <li><b>Подвеска(тип)</b> на сайте — отдельные поля: <b>передняя</b> и <b>задняя</b></li>
+      <li>Рекомендуется сверять <b>VIN</b> и фото ТС на сайте для проверки соответствия</li>
+    </ul>
+  </div>
+</div>
+
+
+
+  <h2>📝 Сравнение данных</h2>
+  <table id="compareTable">
+    <thead>
+      <tr>
+        <th>Поле</th>
+        <th>Данные с сайта</th>
+        <th>Данные из PDF</th>
+        <th>Совпадение</th>
+      </tr>
+    </thead>
+    <tbody id="comparisonBody">
+      <!-- Сюда будут вставлены строки -->
+    </tbody>
+  </table>
+
+  <hr>
+
+  <div id="finalResult"></div>
+
+  <script src="{{ url_for('static', filename='vins.js') }}"></script>
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

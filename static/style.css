@@ -1,0 +1,107 @@
+body {
+    font-family: Arial, sans-serif;
+    padding: 30px;
+    background-color: #f8f8f8;
+  }
+  
+  h1 {
+    font-size: 24px;
+    margin-bottom: 20px;
+  }
+  
+  .form-section {
+    margin-bottom: 20px;
+  }
+  
+  input[type="text"] {
+    padding: 8px;
+    width: 60%;
+    font-size: 14px;
+  }
+  
+  button {
+    padding: 8px 16px;
+    font-size: 14px;
+    margin-left: 10px;
+    cursor: pointer;
+  }
+  
+  #compareTable {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+    background-color: #fff;
+  }
+  
+  #compareTable th,
+  #compareTable td {
+    border: 1px solid #ccc;
+    padding: 8px;
+    text-align: left;
+    font-size: 13px;
+  }
+  
+  .match {
+    background-color: #e0ffe0;
+  }
+  
+  .mismatch {
+    background-color: #ffe0e0;
+  }
+  
+  #finalResult {
+    margin-top: 20px;
+    font-weight: bold;
+    font-size: 16px;
+  }
+  
+  #status {
+    margin: 20px 0;
+    font-style: italic;
+    color: #555;
+  }
+
+.toolbar-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;  /* Две колонки: кнопки | info-block */
+  align-items: flex-start;
+  margin-bottom: 20px;
+  gap: 24px;
+}
+
+@media (min-width: 1300px) {
+  .toolbar-row {
+    grid-template-columns: 1fr 1fr 1fr;  /* Три плитки при ширине экрана > 1300px */
+  }
+}
+
+/* Чтобы info-block не был слишком широким на больших экранах */
+.info-block {
+  background: #f4faff;
+  border-left: 5px solid #2196f3;
+  padding: 16px 18px;
+  border-radius: 8px;
+  max-width: 430px;   /* больше ширины, чтобы не было узко */
+  color: #155077;
+  font-size: 14px;
+  line-height: 1.6;
+  box-shadow: 0 1px 3px rgba(50,70,120,0.05);
+  margin: 0; /* убираем лишний отступ */
+}
+
+.toolbar-buttons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+@media (max-width: 900px) {
+  .toolbar-row {
+    grid-template-columns: 1fr;
+  }
+  .info-block {
+    max-width: 100%;
+    margin-top: 16px;
+  }
+}
+
