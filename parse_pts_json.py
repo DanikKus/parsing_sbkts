@@ -6,20 +6,6 @@ import os
 from auth_token_selenium import get_token_and_cookies_via_selenium, load_auth_from_cache, save_auth_to_cache
 import copy
 
-# === Глобальные переменные
-token = None
-cookies = None
-headers = {}
-
-
-# ⚙️ Подгружаем токен из кеша
-token, cookies = load_auth_from_cache()
-
-if token:
-    print("🔒 Токен загружен из кеша.")
-else:
-    print("❌ Токен не найден. Пожалуйста, выполните логин через веб-интерфейс.")
-
 def validate_token(token, cookies):
     url = "https://pts.gov.kz/api/compliencedocument/get?id=00000000-0000-0000-0000-000000000000"  # заведомо пустой doc_id
     headers = {
@@ -35,27 +21,16 @@ def validate_token(token, cookies):
     except:
         return False
 
-# Если токен невалиден — обновляем
-if not token or not validate_token(token, cookies):
-    print("🔁 Токен устарел. Авторизация через браузер...")
-    token, cookies = get_token_and_cookies_via_selenium()
-    save_auth_to_cache(token, cookies)
-else:
-    print("🔒 Используем сохранённый токен.")
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-def setup_auth():
-    global token, cookies, headers
 
-    # Загружаем из кэша
+def get_json(endpoint: str, doc_id: str, label: str = ""):
+    # <-- Новое: ВСЕГДА ЧИТАЕМ АКТУАЛЬНЫЕ token и cookies из кэша
     token, cookies = load_auth_from_cache()
-    if token and validate_token(token, cookies):
-        print("🔒 Используем сохранённый токен.")
-    else:
-        print("🔓 Авторизация через браузер...")
-        token, cookies = get_token_and_cookies_via_selenium()
-        save_auth_to_cache(token, cookies)
+    if not token:
+        print("❌ Нет токена! Сначала пройди авторизацию.")
+        return None
 
-    # Устанавливаем заголовки
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
@@ -63,10 +38,24 @@ def setup_auth():
         "Referer": "https://pts.gov.kz/",
         "X-Requested-With": "XMLHttpRequest"
     }
+    url = f"https://pts.gov.kz/api/compliencedocument/{endpoint}?id={doc_id}"
 
+    try:
+        print(f"➡️ GET {url} с токеном: Bearer {token[:20]}...")
+        response = requests.get(url, headers=headers, cookies=cookies, verify=False)
+        response.raise_for_status()
+        data = response.json().get("data", None)
 
+        if data in [None, [], {}]:
+            print(f"⚠️ Нет данных из '{endpoint}' → поле '{label}' останется пустым.")
+        else:
+            print(f"✅ Данные загружены из '{endpoint}' для поля '{label}'")
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        return data
+
+    except Exception as e:
+        print(f"❌ Ошибка при запросе {url}: {e}")
+        return None
 
 
 # Шаблон полей
@@ -133,27 +122,6 @@ FIELDS_TEMPLATE = {
 def extract_doc_id(url: str) -> str:
     match = re.search(r'/([a-f0-9\-]{36})', url)
     return match.group(1) if match else None
-
-def get_json(endpoint: str, doc_id: str, label: str = ""):
-    url = f"https://pts.gov.kz/api/compliencedocument/{endpoint}?id={doc_id}"
-
-    try:
-        print(f"➡️ GET {url} с токеном: Bearer {token[:20]}...")
-        response = requests.get(url, headers=headers, cookies=cookies, verify=False)
-        response.raise_for_status()
-        data = response.json().get("data", None)
-
-        if data in [None, [], {}]:
-            print(f"⚠️ Нет данных из '{endpoint}' → поле '{label}' останется пустым.")
-        else:
-            print(f"✅ Данные загружены из '{endpoint}' для поля '{label}'")
-
-        return data
-
-    except Exception as e:
-        print(f"❌ Ошибка при запросе {url}: {e}")
-        return None
-
 
 def parse_vehicle_data_from_url(url: str):
     doc_id = extract_doc_id(url)
@@ -610,26 +578,26 @@ def parse_vehicle_data_from_url(url: str):
     return data
 
 # === ПРИМЕР ИСПОЛЬЗОВАНИЯ ===
+
 if __name__ == "__main__":
-        # ⚙️ Запускаем авторизацию при старте
-    setup_auth()
+    # Проверяем токен перед стартом!
+    token, cookies = load_auth_from_cache()
+    if not token or not validate_token(token, cookies):
+        print("🔁 Токен устарел или отсутствует. Авторизация через браузер...")
+        token, cookies = get_token_and_cookies_via_selenium()
+        save_auth_to_cache(token, cookies)
+    else:
+        print("🔒 Используем сохранённый токен.")
 
     import json
-    import os
-
     input_url = input("Вставь ссылку на страницу ТС: ").strip()
     result = parse_vehicle_data_from_url(input_url)
 
-    # Выводим результат в консоль
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
-    # Путь к папке и файлу
     output_dir = "test"
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, "site_data.json")
-
-    # Сохраняем в файл
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
-
     print(f"\n✅ Результаты сохранены в файл: {output_path}")
