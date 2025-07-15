@@ -5,6 +5,38 @@ import urllib3
 import os
 from auth_token_selenium import get_token_and_cookies_via_selenium, load_auth_from_cache, save_auth_to_cache
 import copy
+import json
+
+# --- Локальный справочник организаций ---
+def load_organizations_from_file(filename="response.txt"):
+    try:
+        with open(filename, encoding="utf-8") as f:
+            data = json.load(f)
+            return data.get("data", [])
+    except Exception as e:
+        print(f"❌ Не удалось загрузить список организаций из {filename}: {e}")
+        return []
+
+# Глобальный список — грузим ОДИН РАЗ при старте (это важно!)
+ORG_LIST = load_organizations_from_file()
+
+def get_org_from_file_by_id(org_id, org_list=ORG_LIST):
+    # id может быть числом или строкой — сравниваем как строки!
+    for org in org_list:
+        if str(org["id"]) == str(org_id):
+            name = org.get("name") or org.get("shortName") or ""
+            address = org.get("factAddressName") or org.get("juridicalAddressName") or ""
+            bin_val = org.get("bin", "")
+            parts = []
+            if name:
+                parts.append(name)
+            if address:
+                parts.append(address)
+            if bin_val:
+                parts.append(f"БИН: {bin_val}")
+            return ", ".join(parts)
+    return None
+
 
 def validate_token(token, cookies):
     url = "https://pts.gov.kz/api/compliencedocument/get?id=00000000-0000-0000-0000-000000000000"  # заведомо пустой doc_id
@@ -123,6 +155,13 @@ def extract_doc_id(url: str) -> str:
     match = re.search(r'/([a-f0-9\-]{36})', url)
     return match.group(1) if match else None
 
+
+def get_org_name_and_address(org_id, headers=None, cookies=None):
+    org_info = get_org_from_file_by_id(org_id)
+    if org_info:
+        return org_info
+    return f"[Организация, id={org_id}]"
+
 def parse_vehicle_data_from_url(url: str):
     doc_id = extract_doc_id(url)
     if not doc_id:
@@ -133,20 +172,47 @@ def parse_vehicle_data_from_url(url: str):
     data["Габаритные размеры, мм"] = {"длина": None, "ширина": None, "высота": None}
     data["Подвеска(тип)"] = {"передняя": None, "задняя": None}
     data["Тормозные системы (тип)"] = {"рабочая": None, "запасная": None, "стояночная": None}
-
     base = get_json("get", doc_id)
     if not base:
         print("❌ Ошибка: основной документ не найден. Проверь токен, ссылку или ID.")
         return {"error": "Ошибка загрузки данных с сайта."}
 
-    data["ЗАЯВИТЕЛЬ И ЕГО АДРЕС"] = base.get("applicantName")
-        # Заявитель и его адрес
-    if base.get("applicantName"):
-        data["ЗАЯВИТЕЛЬ И ЕГО АДРЕС"] = base["applicantName"]
-    elif base.get("organizationName"):
-        data["ЗАЯВИТЕЛЬ И ЕГО АДРЕС"] = base["organizationName"]
+      # --- Универсальный блок заявителя ---
+        # --- Универсальный блок заявителя ---
+    private_person_id = base.get("applicantPPId")   # для физлица
+    organization_id = base.get("organizationId")    # основной заявитель-организация
+    applicant_id = base.get("applicantId")          # заявитель по справочнику (основной случай)
+    applicant_str = None
+
+    token, cookies = load_auth_from_cache()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0",
+    }
+
+    if private_person_id:
+    # Физлицо — оставляем как есть
+        try:
+            person_url = f"https://pts.gov.kz/api/PrivatePerson/getPersonById/{private_person_id}"
+            resp = requests.get(person_url, headers=headers, cookies=cookies, verify=False, timeout=10)
+            person = resp.json().get("data", {})
+            fio = " ".join(str(person.get(k, "")) for k in ["surName", "nameOfPerson", "patronymic"]).strip()
+            iin = person.get("iin", "")
+            applicant_str = f"{fio} (ИИН: {iin}) [физ.лицо]"
+        except Exception as e:
+            print(f"❌ Не удалось получить ФИО заявителя: {e}")
+            applicant_str = f"[Физлицо, id={private_person_id}]"
+    elif organization_id:
+        applicant_str = get_org_name_and_address(organization_id)
+    elif applicant_id:
+        applicant_str = get_org_name_and_address(applicant_id)
+    elif base.get("applicantName"):
+        applicant_str = base.get("applicantName")
     else:
-        data["ЗАЯВИТЕЛЬ И ЕГО АДРЕС"] = None
+        applicant_str = "Заявитель не определён"
+
+    data["ЗАЯВИТЕЛЬ И ЕГО АДРЕС"] = applicant_str
 
     vtype = base.get("vehicleTypeDetail", {})
     chars = vtype.get("characteristicsDetail", {})
@@ -177,7 +243,6 @@ def parse_vehicle_data_from_url(url: str):
     data["КАТЕГОРИЯ"] = (vtype.get("techCategories") or [{}])[0].get("dicName")
     data["ЭКОЛОГИЧЕСКИЙ КЛАСС"] = (vtype.get("ecoClasses") or [{}])[0].get("dicName")
     data["ИСПЫТАТЕЛЬНАЯ ЛАБОРАТОРИЯ"] = base.get("authorityName")
-    data["ЗАЯВИТЕЛЬ И ЕГО АДРЕС"] = None  # пока не найден правильный источник
     # Попробуем определить ИЗГОТОВИТЕЛЯ по fallback
     manufacturer = base.get("manufacturerName")
     if not manufacturer:
@@ -577,6 +642,71 @@ def parse_vehicle_data_from_url(url: str):
 
     return data
 
+
+def check_violation_point5(data: dict) -> dict:
+    """
+    Проверяет нарушение пункта 5 для выгруженных данных.
+    Возвращает результат проверки и пояснение.
+    """
+    # 1. Категория "O"
+    is_category_O = (data.get("КАТЕГОРИЯ", "").strip().upper() == "O" or
+                     (data.get("КАТЕГОРИЯ", "").strip().upper().startswith("O")))
+
+    # 2. Заявитель физ.лицо (ищем "физ.лицо" в строке заявителя)
+    applicant = data.get("ЗАЯВИТЕЛЬ И ЕГО АДРЕС", "") or ""
+    is_individual = "физ.лицо" in applicant.lower()
+
+    # 3. Масса > 3500 кг
+    try:
+        mass = float(str(data.get("Технически допустимая максимальная масса транспортного средства, кг") or "0").replace(",", ".").replace(" ", ""))
+    except Exception:
+        mass = 0
+    is_over_3500 = mass > 3500
+
+    # 4. Исключения: по описанию (можно доработать)
+    description_fields = [
+        data.get("Тип", ""),
+        data.get("КОММЕРЧЕСКОЕ НАИМЕНОВАНИЕ", ""),
+        data.get("Тип кузова/количество дверей (для категории М1)", ""),
+        data.get("Дополнительное оборудование транспортного средства", ""),
+    ]
+    description = " ".join([str(x or "") for x in description_fields]).lower()
+    is_exception = (
+        "перевозк" in description and "автомоб" in description
+        or "дом" in description and "прицеп" in description
+        or "автоприцеп" in description and ("жиль" in description or "турист" in description)
+    )
+
+    result = {
+        "is_category_O": is_category_O,
+        "is_individual": is_individual,
+        "is_over_3500": is_over_3500,
+        "is_exception": is_exception,
+        "violation": False,
+        "explanation": ""
+    }
+
+    if is_category_O and is_individual and is_over_3500 and not is_exception:
+        result["violation"] = True
+        result["explanation"] = (
+            "Нарушение пункта 5: Категория O, заявитель физ.лицо, масса > 3500 кг, не подпадает под исключения."
+        )
+    else:
+        if not is_category_O:
+            reason = "Не категория O."
+        elif not is_individual:
+            reason = "Заявитель не физ.лицо."
+        elif not is_over_3500:
+            reason = "Масса не превышает 3500 кг."
+        elif is_exception:
+            reason = "Подпадает под исключения."
+        else:
+            reason = "Не нарушение по иным причинам."
+        result["explanation"] = reason
+
+    return result
+
+
 # === ПРИМЕР ИСПОЛЬЗОВАНИЯ ===
 
 if __name__ == "__main__":
@@ -589,7 +719,6 @@ if __name__ == "__main__":
     else:
         print("🔒 Используем сохранённый токен.")
 
-    import json
     input_url = input("Вставь ссылку на страницу ТС: ").strip()
     result = parse_vehicle_data_from_url(input_url)
 

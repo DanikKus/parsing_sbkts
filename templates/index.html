@@ -44,6 +44,20 @@
   </div>
 </div>
 
+  <div class="error-summary-accordion" id="allErrors" style="display: none;">
+  <div class="error-summary-header" onclick="toggleErrors()">
+      🚨 Обнаружены ошибки (нажмите для раскрытия)
+      <span id="arrow">&#9660;</span>
+  </div>
+  <div class="error-summary-content" id="errorContent">
+    <div class="error-hint">
+      <span style="font-size:15px;color:#ad2c2c;display:inline-block;margin-bottom:10px;">
+        💡 <b>Совет:</b> нажмите на название поля с ошибкой, чтобы быстро перейти к нему в таблице сравнения.
+      </span>
+    </div>
+    <!-- Здесь будет список ошибок через JS -->
+  </div>
+</div>
 
 
   <h2>📝 Сравнение данных</h2>
@@ -54,6 +68,7 @@
         <th>Данные с сайта</th>
         <th>Данные из PDF</th>
         <th>Совпадение</th>
+        <th>Ошибка</th> <!-- 🆕 Новая колонка -->
       </tr>
     </thead>
     <tbody id="comparisonBody">
@@ -64,6 +79,14 @@
   <hr>
 
   <div id="finalResult"></div>
+    <div class="error-summary-accordion" id="allErrors" style="display: none;">
+      <div class="error-summary-header" onclick="toggleErrors()">
+          🚨 Обнаружены ошибки (нажмите для раскрытия)
+          <span id="arrow">&#9660;</span>
+      </div>
+    <div class="error-summary-content" id="errorContent"></div>
+  </div>
+
 
   <script src="{{ url_for('static', filename='vins.js') }}"></script>
   <script src="{{ url_for('static', filename='script.js') }}"></script>

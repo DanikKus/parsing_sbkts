@@ -105,3 +105,98 @@ body {
   }
 }
 
+/* --- Современный дизайн error summary --- */
+.error-summary-accordion {
+  width: 100vw;
+  left: 50%;
+  right: 0;
+  margin-left: -50vw;
+  margin-right: 0;
+  position: relative;
+  background: linear-gradient(90deg, #fff4f4 0%, #ffeaea 100%);
+  border-left: 6px solid #ff6b6b;
+  color: #b22a2a;
+  padding: 0;
+  border-radius: 0 0 18px 18px;
+  box-shadow: 0 2px 10px rgba(255, 107, 107, 0.07);
+  font-size: 17px;
+  margin-top: 32px;
+  margin-bottom: 0;
+  z-index: 99;
+  transition: box-shadow 0.3s;
+}
+
+.error-summary-header {
+  cursor: pointer;
+  font-size: 18px;
+  padding: 18px 28px;
+  font-weight: bold;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff6f6;
+  border-bottom: 1px solid #ffd3d3;
+}
+
+.error-summary-content {
+  display: block;
+  padding: 16px 30px 22px 40px;
+  font-size: 16px;
+  line-height: 1.6;
+  animation: slideDown 0.4s;
+}
+
+@keyframes slideDown {
+  from { max-height: 0; opacity: 0; }
+  to { max-height: 900px; opacity: 1; }
+}
+
+#errorContent ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+/* --- Стилизация ссылок ошибок --- */
+.error-summary-content a {
+  color: #c0252d; /* мягкий красный */
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1.5px dashed #ffd3d3;
+  transition: color 0.2s, border-bottom-color 0.2s;
+  padding: 1px 2px;
+  border-radius: 4px;
+}
+
+.error-summary-content a:hover {
+  color: #fff;
+  background: #ff6b6b;
+  border-bottom-color: #ff6b6b;
+  text-decoration: none;
+}
+
+.error-summary-content li {
+  margin-bottom: 7px;
+}
+
+/* --- Современная подсветка строки таблицы --- */
+.highlight-error-row {
+  background-color: #ffe0b2 !important; /* светло-персиковый */
+  transition: background 0.4s;
+  box-shadow: 0 2px 18px 0 #ffd699;
+  animation: blink 0.6s 1;
+}
+
+@keyframes blink {
+  50% { background-color: #ffd699 !important; }
+}
+.error-hint {
+  background: #fff8f1;
+  padding: 10px 16px 8px 14px;
+  margin-bottom: 7px;
+  border-left: 4px solid #ffbe76;
+  border-radius: 6px;
+  color: #ad2c2c;
+  font-size: 15px;
+  font-style: italic;
+}

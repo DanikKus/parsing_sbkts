@@ -34,6 +34,7 @@ def login():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+from parse_pts_json import parse_vehicle_data_from_url, check_violation_point5
 
 @app.route('/parse_site', methods=['POST'])
 def parse_site():
@@ -43,8 +44,9 @@ def parse_site():
         return jsonify({"error": "Не передан URL"}), 400
 
     result = parse_vehicle_data_from_url(url)
+    violation = check_violation_point5(result)
 
-    # 🆕 Переставляем дату оформления наверх
+    # Переставляем дату оформления наверх
     if "Дата оформления" in result:
         reordered = {
             "Дата оформления": result.pop("Дата оформления"),  # сначала дата оформления
@@ -53,7 +55,12 @@ def parse_site():
     else:
         reordered = result
 
-    return jsonify(reordered)
+    return jsonify({
+        "fields": reordered,
+        "violation_point5": violation
+    })
+
+
 @app.route('/check_token_status')
 def check_token_status():
     try:
