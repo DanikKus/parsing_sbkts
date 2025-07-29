@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 from parse_pts_json import parse_vehicle_data_from_url
-from comparedocs import extract_text_from_pdf, parse_fields, postprocess_ev_fields
+from parse_aspose import extract_text_from_pdf   # твоя функция получения текста
+from parse_fields import parse_fields  # твой текст→json парсер
 import shutil
 import requests
 import os
@@ -145,13 +146,20 @@ def parse_pdf_file():
     if not file.filename.endswith(".pdf"):
         return jsonify({'error': 'Неверный формат файла'}), 400
 
+    import tempfile
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
         file.save(tmp.name)
-        text = extract_text_from_pdf(tmp.name)
-        data = parse_fields(text)
-        data = postprocess_ev_fields(data, text)   # <<==== ДОБАВЬ ЭТО!
-    return jsonify(data)
+        tmp_path = tmp.name  # Сохранили путь
 
+    # !!! Важно: tmp уже закрыт, теперь можно безопасно читать
+    text = extract_text_from_pdf(tmp_path)  # aspose → текст
+
+    # Не забудь удалить файл после парса!
+    import os
+    os.remove(tmp_path)
+
+    data = parse_fields(text)
+    return jsonify(data)
 
 
 @app.route('/parse_pdf', methods=['POST'])
@@ -168,12 +176,13 @@ def parse_pdf():
         tmp.write(response.content)
         tmp_path = tmp.name
 
-    text = extract_text_from_pdf(tmp_path)
-    result = parse_fields(text)
-    result = postprocess_ev_fields(result, text)   # <<==== ДОБАВЬ ЭТО!
+    text = extract_text_from_pdf(tmp_path)  # aspose → текст
+    result = parse_fields(text)             # текст → JSON
+    # result = postprocess_ev_fields(result, text)  # если надо
 
     os.remove(tmp_path)
     return jsonify(result)
+
 
 
 def open_browser():

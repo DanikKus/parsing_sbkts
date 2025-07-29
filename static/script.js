@@ -14,9 +14,9 @@ function fetchFromSite() {
     body: JSON.stringify({ url })
   })
     .then(res => res.json())
-        .then(data => {
-      // data.fields — твои поля, data.violation_point5 — результат проверки
-      siteData = data.fields;
+      .then(data => {
+      console.log("Ключи siteData:", Object.keys(data.fields)); // Посмотри в консоли браузера
+      siteData = applyFieldAliases(data.fields); // <--- вот сюда!
       document.getElementById("status").innerText = "✅ Данные с сайта загружены.";
       compareData();
     })
@@ -135,7 +135,7 @@ function fetchFromPDF() {
   })
     .then(res => res.json())
     .then(data => {
-      pdfData = data;
+      pdfData = applyFieldAliases(data);
       document.getElementById("status").innerText = "✅ Данные из PDF загружены.";
       compareData();
     })
@@ -160,7 +160,7 @@ function uploadPDF() {
     })
       .then(res => res.json())
       .then(data => {
-        pdfData = data;
+        pdfData = applyFieldAliases(data);
         document.getElementById("status").innerText = "✅ PDF успешно распознан.";
         compareData();
       })
@@ -173,6 +173,19 @@ function uploadPDF() {
 function makeRowId(fieldName) {
   return "row-" + fieldName.replace(/[^a-zA-Z0-9а-яА-Я]+/g, "_");
 }
+
+
+function applyFieldAliases(data) {
+  const aliases = {
+    "Описание гибридного привода": "Описание гибридного транспортного средства",
+    // добавь другие, если встретишь
+  };
+  for (const [from, to] of Object.entries(aliases)) {
+    if (data[from] && !data[to]) data[to] = data[from];
+  }
+  return data;
+}
+
 
 
 function compareData() {
