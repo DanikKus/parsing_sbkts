@@ -2,10 +2,9 @@ from flask import Flask, render_template, request, jsonify
 from parse_pts_json import parse_vehicle_data_from_url
 from parse_aspose import extract_text_from_pdf   # твоя функция получения текста
 from parse_fields import parse_fields  # твой текст→json парсер
-import shutil
+from db_integration import send_parsed_result
 import requests
 import os
-import fitz  # pymupdf
 import tempfile
 import threading
 import time
@@ -182,6 +181,23 @@ def parse_pdf():
 
     os.remove(tmp_path)
     return jsonify(result)
+
+@app.route('/save_result', methods=['POST'])
+def save_result():
+    data = request.get_json()
+    status, response = send_parsed_result(
+        source_type=data.get("sourceType", "PTS"),
+        site_json=data.get("site", {}),
+        pdf_json=data.get("pdf", {}),
+        errors_json=data.get("errors", {}),
+        user_comment=data.get("userComment", ""),
+        jwt_token=None
+    )
+    if status in (200, 201):
+        return {"success": True}
+    else:
+        return {"success": False, "error": response}, status
+
 
 
 

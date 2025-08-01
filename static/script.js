@@ -574,6 +574,110 @@ function checkTokenStatus() {
     });
 }
 
+function sendResultToBackend() {
+  if (!siteData || !pdfData) {
+    alert("Сначала загрузите данные с сайта и PDF!");
+    return;
+  }
+  const sendBtn = document.getElementById("sendBtn");
+  if (sendBtn) sendBtn.disabled = true;
+
+  fetch("/save_result", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sourceType: "PTS",
+      site: siteData,
+      pdf: pdfData,
+      errors: errorFields,
+      userComment: document.getElementById("userComment").value
+    })
+  })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        alert("✔ Отправлено админу!");
+        clearComparison();
+        document.getElementById("userComment").value = "";
+      } else {
+        alert("❌ Ошибка: " + data.error);
+      }
+    })
+    .catch(err => {
+      alert("❌ Не удалось отправить результат. Проверьте соединение или попробуйте позже.");
+    })
+    .finally(() => {
+      if (sendBtn) sendBtn.disabled = false;
+    });
+}
+
+function showUserResults() {
+  const block = document.getElementById("userResultsBlock");
+  block.style.display = "block";
+  fetch("/api/parsed/my")
+    .then(res => res.json())
+    .then(data => {
+      const tbody = document.querySelector("#userResultsTable tbody");
+      tbody.innerHTML = "";
+      if (!data.length) {
+        tbody.innerHTML = "<tr><td colspan='5'>Нет сохранённых результатов.</td></tr>";
+        return;
+      }
+      for (const r of data) {
+        const vin = tryExtractVin(r.resultJson);
+        const errors = summarizeErrors(r.errorsJson);
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${formatDateTime(r.createdAt)}</td>
+          <td>${vin}</td>
+          <td>${formatStatus(r.status)}</td>
+          <td>${errors}</td>
+          <td><button onclick="viewParsedResult('${r.id}')">Детали</button></td>
+        `;
+        tbody.appendChild(row);
+      }
+    });
+}
+
+function tryExtractVin(resultJsonStr) {
+  try {
+    const obj = JSON.parse(resultJsonStr);
+    return obj.site?.["ИДЕНТИФИКАЦИОННЫЙ НОМЕР (VIN)"] || "-";
+  } catch {
+    return "-";
+  }
+}
+
+function summarizeErrors(errorsJsonStr) {
+  try {
+    const obj = JSON.parse(errorsJsonStr);
+    const keys = Object.keys(obj).filter(k => obj[k]);
+    return keys.length ? keys.join(", ") : "—";
+  } catch {
+    return "—";
+  }
+}
+
+function formatDateTime(str) {
+  // "2024-07-25T11:22:33"
+  if (!str) return "-";
+  const d = new Date(str);
+  return d.toLocaleString("ru-RU");
+}
+
+function formatStatus(status) {
+  if (status === "approved") return "✅ Одобрено";
+  if (status === "pending") return "⏳ На проверке";
+  if (status === "rejected") return "❌ Отклонено";
+  return status || "-";
+}
+
+// Заглушка — модалка для детального просмотра (реализуем отдельно!)
+function viewParsedResult(id) {
+  alert("Детальный просмотр результата ID: " + id);
+  // Можно реализовать отдельный fetch /api/parsed/{id}, выводить сравнение, ошибки, комментарии, pdf/site данные и т.д.
+}
+
 
 function scrollToRow(rowId) {
   const row = document.getElementById(rowId);

@@ -77,6 +77,25 @@
   </table>
 
   <hr>
+    <button onclick="showUserResults()">📄 Мои результаты</button>
+    <div id="userResultsBlock" style="display:none; margin-top: 30px;">
+    <h3>История отправленных результатов</h3>
+    <table id="userResultsTable">
+      <thead>
+        <tr>
+          <th>Дата</th>
+          <th>VIN</th>
+          <th>Статус</th>
+          <th>Ошибки</th>
+          <th>Действия</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <input id="userComment" placeholder="Комментарий для администратора">
+  <button id="sendBtn" onclick="sendResultToBackend()">Отправить админу</button>
 
   <div id="finalResult"></div>
     <div class="error-summary-accordion" id="allErrors" style="display: none;">
