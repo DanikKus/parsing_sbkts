@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "ModuLab ePTS Helper",
+  "version": "0.2.0",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": ["https://pts.gov.kz/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://modulab.kz/*",
+        "http://localhost:5173/*",
+        "http://127.0.0.1:5000/*",
+        "http://localhost:5000/*",
+        "http://127.0.0.1:8080/*",
+        "http://localhost:8080/*",
+        "http://192.168.16.90:5000/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://pts.gov.kz/*"],
+      "js": ["pts-content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "minimum_chrome_version": "120"
+}

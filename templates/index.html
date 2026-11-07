@@ -2,93 +2,205 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>Парсер PTS + PDF</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PTS ↔ TechReg — Проверка СБКТС</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v=static_v) }}">
 </head>
 <body>
 
-  <h1>🚗 Сравнение данных с PTS.gov.kz и PDF</h1>
-
-  <div class="form-section">
-    <label for="siteUrl">🔗 Ссылка на страницу PTS:</label>
-    <input type="text" id="siteUrl" placeholder="https://pts.gov.kz/sbkts/...">
-    <button onclick="fetchFromSite()">Парсить сайт</button>
-  </div>
-
-  <div class="form-section">
-    <label for="pdfFile">📄 Загрузить PDF-документ:</label>
-    <input type="file" id="pdfFile" accept=".pdf">
-    <button onclick="uploadPDF()">Парсить PDF</button>
-  </div>
-
-  <hr>
-
-  <div id="status"></div>
-
-  <!-- КНОПКА ОЧИСТКИ -->
-
- <div class="toolbar-row">
-  <div class="toolbar-buttons">
-    <button onclick="clearComparison()">🧹 Очистить данные</button>
-    <button onclick="refreshToken()" id="refreshBtn" style="display: none; margin-left: 10px;">🔄 Обновить токен</button>
-    <span id="tokenStatus" style="margin-left: 20px; font-weight: bold; color: red;">Проверка...</span>
-  </div>
-  <div class="info-block">
-    <b>ℹ️ Примечание:</b>
-    <ul>
-      <li>Автор документа не парсится на сайте <b>PTS.gov.kz</b></li>
-      <li>По гибридным и электрическим авто данные могут быть разбросаны по разным полям (<b>электромашина</b>, <b>электродвигатель</b>)</li>
-      <li><b>Подвеска(тип)</b> на сайте — отдельные поля: <b>передняя</b> и <b>задняя</b></li>
-      <li>Рекомендуется сверять <b>VIN</b> и фото ТС на сайте для проверки соответствия</li>
-    </ul>
-  </div>
-</div>
-
-  <div class="error-summary-accordion" id="allErrors" style="display: none;">
-  <div class="error-summary-header" onclick="toggleErrors()">
-      🚨 Обнаружены ошибки (нажмите для раскрытия)
-      <span id="arrow">&#9660;</span>
-  </div>
-  <div class="error-summary-content" id="errorContent">
-    <div class="error-hint">
-      <span style="font-size:15px;color:#ad2c2c;display:inline-block;margin-bottom:10px;">
-        💡 <b>Совет:</b> нажмите на название поля с ошибкой, чтобы быстро перейти к нему в таблице сравнения.
-      </span>
-    </div>
-    <!-- Здесь будет список ошибок через JS -->
-  </div>
-</div>
-
-
-  <h2>📝 Сравнение данных</h2>
-  <table id="compareTable">
-    <thead>
-      <tr>
-        <th>Поле</th>
-        <th>Данные с сайта</th>
-        <th>Данные из PDF</th>
-        <th>Совпадение</th>
-        <th>Ошибка</th> <!-- 🆕 Новая колонка -->
-      </tr>
-    </thead>
-    <tbody id="comparisonBody">
-      <!-- Сюда будут вставлены строки -->
-    </tbody>
-  </table>
-
-  <hr>
-
-  <div id="finalResult"></div>
-    <div class="error-summary-accordion" id="allErrors" style="display: none;">
-      <div class="error-summary-header" onclick="toggleErrors()">
-          🚨 Обнаружены ошибки (нажмите для раскрытия)
-          <span id="arrow">&#9660;</span>
+  <!-- ===== TOP NAV BAR ===== -->
+  <header class="topbar">
+    <div class="topbar__inner">
+      <div class="topbar__brand">
+        <span class="topbar__logo">⚡</span>
+        <div>
+          <span class="topbar__title">PTS ↔ TechReg</span>
+          <span class="topbar__sub">Проверка СБКТС</span>
+        </div>
       </div>
-    <div class="error-summary-content" id="errorContent"></div>
+      <div class="topbar__actions">
+        <button class="btn btn--sm btn--topbar-ghost" onclick="clearComparison()">Очистить</button>
+        <button class="btn btn--sm btn--outline" type="button" onclick="window.open('https://pts.gov.kz/login','_blank')">Войти в ePTS</button>
+      </div>
+    </div>
+    <div id="extBanner" class="notice" style="display:none; margin:0; border-radius:0; border-left:0; border-right:0; border-top:0;"></div>
+  </header>
+
+  <main class="container">
+
+    <!-- ===== ПОИСК ===== -->
+    <section class="search-panel card">
+      <div class="search-group">
+
+        <div class="search-item">
+          <label for="siteUrl" class="label">
+            <span class="label__icon">🔗</span>
+            Ссылка на карточку ePTS
+          </label>
+          <div class="input-row">
+            <input type="text" id="siteUrl" placeholder="https://pts.gov.kz/compliencedocument/sbkts/…" />
+            <button class="btn btn--primary" onclick="fetchFromSite()">Загрузить</button>
+          </div>
+        </div>
+
+        <div class="search-divider"><span>или</span></div>
+
+        <div class="search-item">
+          <label for="techregNumber" class="label">
+            <span class="label__icon">🔎</span>
+            Номер заявки TechReg
+          </label>
+          <div class="input-row">
+            <input type="text" id="techregNumber" placeholder="SBKTS-2025-000123" />
+            <button class="btn btn--secondary" onclick="fetchFromTechReg()">Загрузить</button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Статус авторизации ePTS -->
+    <div class="auth-status-card card">
+      <span id="tokenStatus">Проверка...</span>
+    </div>
+
+    <div id="status" class="status-bar muted"></div>
+
+    <!-- ===== DocId + СОБЫТИЯ ===== -->
+    <div class="doc-meta-row">
+
+      <div class="doc-meta-card card">
+        <div class="docid">
+          <span class="docid__label">DocId</span>
+          <span id="docIdView" class="docid__value">—</span>
+        </div>
+        <div class="doc-badges">
+          <span class="badge-group">
+            <span class="muted small">TechReg</span>
+            <span id="trStatusBadge" class="chip">—</span>
+          </span>
+          <span class="badge-group">
+            <span class="muted small">PTS</span>
+            <span id="ptsStatusBadge" class="chip">—</span>
+          </span>
+        </div>
+        <div id="decisionStatus" class="muted" style="font-size:13px;"></div>
+      </div>
+
+      <section class="card">
+        <h3 class="section-title">События документа</h3>
+        <div id="eventsPanel" class="events">
+          <div class="events-empty">События появятся после загрузки документа.</div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- ===== ВНЕШНИЕ ПРОВЕРКИ VIN ===== -->
+    <div class="vin-section">
+      <h3 class="section-title">Внешние проверки по VIN</h3>
+      <div class="vin-grid">
+
+        <div class="vin-card card">
+          <div class="vin-card__header">
+            <span class="vin-card__icon">🔍</span>
+            <span class="vin-card__title">evak.online</span>
+          </div>
+          <div id="vinResult" class="vin-result"></div>
+        </div>
+
+        <div class="vin-card card">
+          <div class="vin-card__header">
+            <span class="vin-card__icon">🛃</span>
+            <span class="vin-card__title">Таможня РФ (customs.gov.ru)</span>
+          </div>
+          <div id="customsResult" class="vin-result notice">⏳ Ожидание VIN...</div>
+        </div>
+
+        <div class="vin-card card">
+          <div class="vin-card__header">
+            <span class="vin-card__icon">🇰🇿</span>
+            <span class="vin-card__title">КГД КЗ (keden.kgd.gov.kz)</span>
+          </div>
+          <div id="kedenResult" class="vin-result notice">⏳ Ожидание VIN...</div>
+        </div>
+
+      </div>
+
+      <!-- eokno: отображается только если сервер вернул found=true -->
+      <div id="eoknoWrapper" class="vin-card card" style="display:none; margin-top:12px;">
+        <div class="vin-card__header">
+          <span class="vin-card__icon">🏛️</span>
+          <span class="vin-card__title">eokno.gov.kz — таможенная очистка (КЗ)</span>
+        </div>
+        <div id="eoknoResult" class="vin-result"></div>
+      </div>
+    </div>
+
+    <!-- ===== ИТОГ ===== -->
+    <div id="finalResult" class="summary"></div>
+
+    <!-- ===== ОШИБКИ ===== -->
+    <div class="error-bar" id="allErrors" style="display:none;">
+      <button class="error-bar__toggle" onclick="toggleErrorsAccordion()">
+        🚨 Ошибки (<span id="errorAccordionCount">0</span>)
+        <span id="errorAccordionArrow" class="arrow">▾</span>
+      </button>
+      <div class="error-bar__body" id="errorAccordionContent" style="display:block;">
+        <div class="hint">💡 Нажмите на поле с ошибкой, чтобы проскроллить к нему.</div>
+        <ul id="errorAccordionList"></ul>
+      </div>
+    </div>
+
+    <!-- ===== ТАБЛИЦА СРАВНЕНИЯ ===== -->
+    <section class="section-block">
+      <h2 class="section-title">Сравнение данных</h2>
+      <div class="table-wrap">
+        <table id="compareTable" class="table">
+          <thead>
+            <tr>
+              <th>Поле</th>
+              <th>PTS</th>
+              <th>TechReg</th>
+              <th>Совпадение</th>
+              <th>Ошибка</th>
+            </tr>
+          </thead>
+          <tbody id="comparisonBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== ФОТО ===== -->
+    <section class="section-block">
+      <div class="section-header">
+        <h2 class="section-title">Фотографии</h2>
+        <div class="actions">
+          <button id="btnLoadPhotos" class="btn btn--sm" onclick="loadPhotos()">Показать фото</button>
+          <button class="btn btn--sm btn--ghost" onclick="downloadAllPhotos()">⬇ Скачать все</button>
+          <span id="photosStatus" class="muted"></span>
+        </div>
+      </div>
+      <div id="photoGrid" class="grid-photos"></div>
+    </section>
+
+  </main>
+
+  <!-- ===== МОДАЛКА ФОТО ===== -->
+  <div id="photoModal" class="modal" style="display:none;">
+    <div class="modal__backdrop" onclick="closePhotoModal()"></div>
+    <div class="modal__content">
+      <button class="modal__close" onclick="closePhotoModal()">×</button>
+      <img id="photoModalImg" alt="Фото" />
+      <div class="modal__controls">
+        <button class="btn" onclick="prevPhoto()">⟵</button>
+        <span id="photoCounter" class="muted">1/1</span>
+        <button class="btn" onclick="nextPhoto()">⟶</button>
+      </div>
+    </div>
   </div>
 
-
-  <script src="{{ url_for('static', filename='vins.js') }}"></script>
-  <script src="{{ url_for('static', filename='script.js') }}"></script>
+  <script src="{{ url_for('static', filename='vins.js', v=static_v) }}"></script>
+  <script src="{{ url_for('static', filename='script.js', v=static_v) }}"></script>
 </body>
 </html>

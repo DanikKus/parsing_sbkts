@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "PTS Connector",
+  "version": "0.2.0",
+  "action": { "default_popup": "popup.html" },
+  "permissions": ["cookies", "storage", "tabs", "scripting"],
+  "host_permissions": [
+    "https://pts.gov.kz/*",
+    "https://epts.gov.kz/*", 
+    "https://parser.modulab.kz/*",
+    "http://127.0.0.1:5000/*",
+    "http://localhost:5000/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://parser.modulab.kz/*",
+        "http://127.0.0.1:5000/*",
+        "http://localhost:5000/*"
+      ],
+      "js": ["content_script.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://pts.gov.kz/*"],
+      "js": ["pts_content_script.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

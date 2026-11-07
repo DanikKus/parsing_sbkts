@@ -39,7 +39,7 @@ def get_org_from_file_by_id(org_id, org_list=ORG_LIST):
 
 
 def validate_token(token, cookies):
-    url = "https://pts.gov.kz/api/compliencedocument/get?id=00000000-0000-0000-0000-000000000000"  # заведомо пустой doc_id
+    url = "https://pts.gov.kz/api/ComplienceDocument/Get?id=00000000-0000-0000-0000-000000000000"
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
@@ -56,27 +56,71 @@ def validate_token(token, cookies):
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
+# def get_json(endpoint: str, doc_id: str, label: str = ""):
+#     # <-- Новое: ВСЕГДА ЧИТАЕМ АКТУАЛЬНЫЕ token и cookies из кэша
+#     token, cookies = load_auth_from_cache()
+#     if not token:
+#         print("❌ Нет токена! Сначала пройди авторизацию.")
+#         return None
+
+#     headers = {
+#         "Authorization": f"Bearer {token}",
+#         "Accept": "application/json",
+#         "User-Agent": "Mozilla/5.0",
+#         "Referer": "https://pts.gov.kz/",
+#         "X-Requested-With": "XMLHttpRequest"
+#     }
+#     url = f"https://pts.gov.kz/api/ComplienceDocument/{endpoint}?id={doc_id}"
+#     try:
+#         print(f"➡️ GET {url} с токеном: Bearer {token[:20]}...")
+#         response = requests.get(url, headers=headers, cookies=cookies, verify=False)
+#         response.raise_for_status()
+#         data = response.json().get("data", None)
+
+#         if data in [None, [], {}]:
+#             print(f"⚠️ Нет данных из '{endpoint}' → поле '{label}' останется пустым.")
+#         else:
+#             print(f"✅ Данные загружены из '{endpoint}' для поля '{label}'")
+
+#         return data
+
+#     except Exception as e:
+#         print(f"❌ Ошибка при запросе {url}: {e}")
+#         return None
+
 def get_json(endpoint: str, doc_id: str, label: str = ""):
-    # <-- Новое: ВСЕГДА ЧИТАЕМ АКТУАЛЬНЫЕ token и cookies из кэша
+    # Теперь читаем и токен, и cookies, но токен – НЕ обязателен
     token, cookies = load_auth_from_cache()
-    if not token:
-        print("❌ Нет токена! Сначала пройди авторизацию.")
+
+    if not token and not cookies:
+        print("❌ Нет ни токена, ни cookies. Скорее всего, расширение ещё не прикреплено.")
         return None
 
+    url = f"https://pts.gov.kz/api/ComplienceDocument/{endpoint}?id={doc_id}"
+
+    # Базовые заголовки
     headers = {
-        "Authorization": f"Bearer {token}",
         "Accept": "application/json",
         "User-Agent": "Mozilla/5.0",
         "Referer": "https://pts.gov.kz/",
-        "X-Requested-With": "XMLHttpRequest"
+        "X-Requested-With": "XMLHttpRequest",
     }
-    url = f"https://pts.gov.kz/api/compliencedocument/{endpoint}?id={doc_id}"
+
+    # Если токен всё-таки есть (например, Selenium или расширение его тоже кладёт) – добавляем
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
 
     try:
-        print(f"➡️ GET {url} с токеном: Bearer {token[:20]}...")
-        response = requests.get(url, headers=headers, cookies=cookies, verify=False)
-        response.raise_for_status()
-        data = response.json().get("data", None)
+        print(f"➡️ GET {url} (token={'yes' if token else 'no'}, cookies={'yes' if cookies else 'no'})")
+        resp = requests.get(url, headers=headers, cookies=cookies or {}, verify=False, timeout=20)
+        print(f"   ↳ status = {resp.status_code}")
+
+        if resp.status_code == 401:
+            print("❌ 401 Unauthorized от pts.gov.kz – куки/сессия невалидны. Нужно заново подключить расширение.")
+            return None
+
+        resp.raise_for_status()
+        data = resp.json().get("data", None)
 
         if data in [None, [], {}]:
             print(f"⚠️ Нет данных из '{endpoint}' → поле '{label}' останется пустым.")
@@ -92,6 +136,7 @@ def get_json(endpoint: str, doc_id: str, label: str = ""):
 
 # Шаблон полей
 FIELDS_TEMPLATE = {
+    "Номер документа": None,  # ← добавить
     "ИСПЫТАТЕЛЬНАЯ ЛАБОРАТОРИЯ": None,
     "МАРКА": None,
     "КОММЕРЧЕСКОЕ НАИМЕНОВАНИЕ": None,
@@ -162,6 +207,309 @@ def get_org_name_and_address(org_id, headers=None, cookies=None):
         return org_info
     return f"[Организация, id={org_id}]"
 
+def parse_vehicle_data_from_raw(raw: dict) -> dict:
+    """
+    raw = { base: <ComplienceDocument/Get data|data>, details: {...} }
+    details — это .data из всех доп. эндпоинтов (см. fetchAllDetailsById)
+    """
+    if not isinstance(raw, dict):
+        return {}
+
+    raw = raw or {}
+    base = raw.get("base") or raw.get("data") or raw
+    details = raw.get("details") or {}
+
+    base_data = base.get("data") or base
+
+    data = copy.deepcopy(FIELDS_TEMPLATE)
+    data["Габаритные размеры, мм"] = {"длина": None, "ширина": None, "высота": None}
+    data["Подвеска(тип)"] = {"передняя": None, "задняя": None}
+    data["Тормозные системы (тип)"] = {"рабочая": None, "запасная": None, "стояночная": None}
+
+    # ---- базовый документ
+    vtype = (base or {}).get("vehicleTypeDetail", {}) or {}
+    chars = vtype.get("characteristicsDetail", {}) or {}
+
+    data["Номер документа"] = base.get("docNumber")
+    if base.get("docDate"):
+        data["Дата оформления"] = str(base["docDate"]).split("T")[0]
+    data["ИСПЫТАТЕЛЬНАЯ ЛАБОРАТОРИЯ"] = base.get("authorityName")
+        # --- ЗАЯВИТЕЛЬ ---
+    private_person_id = base.get("applicantPPId")
+    organization_id = base.get("organizationId")
+    applicant_id = base.get("applicantId")
+
+    if base.get("applicantName"):
+        applicant_str = base.get("applicantName")
+    elif private_person_id:
+        applicant_str = f"[физ.лицо id={private_person_id}]"
+    elif organization_id:
+        applicant_str = get_org_name_and_address(organization_id) or f"[Организация id={organization_id}]"
+    elif applicant_id:
+        applicant_str = get_org_name_and_address(applicant_id) or f"[Организация id={applicant_id}]"
+    else:
+        applicant_str = "Заявитель не определён"
+
+    data["ЗАЯВИТЕЛЬ И ЕГО АДРЕС"] = applicant_str
+
+
+    vins = base.get("vinNumbers") or []
+    data["ИДЕНТИФИКАЦИОННЫЙ НОМЕР (VIN)"] = (vins[0] or {}).get("number") if vins else None
+
+    makes = vtype.get("makes") or []
+    data["МАРКА"] = (makes[0] or {}).get("dicName") if makes else None
+    comm  = vtype.get("commercialNames") or []
+    data["КОММЕРЧЕСКОЕ НАИМЕНОВАНИЕ"] = (comm[0] or {}).get("commercialName") if comm else None
+    types = vtype.get("types") or []
+    data["ТИП"] = (types[0] or {}).get("typeValue") if types else None
+
+    data["ГОД ВЫПУСКА"] = vtype.get("yearIssue")
+    tech = vtype.get("techCategories") or []
+    data["КАТЕГОРИЯ"] = (tech[0] or {}).get("dicName") if tech else None
+    eco = vtype.get("ecoClasses") or []
+    data["ЭКОЛОГИЧЕСКИЙ КЛАСС"] = (eco[0] or {}).get("dicName") if eco else None
+
+    manufacturer = base.get("manufacturerName")
+    if not manufacturer:
+        plants = base.get("assemblyPlants") or []
+        if plants:
+            manufacturer = (plants[0] or {}).get("organization")
+    data["ИЗГОТОВИТЕЛЬ И ЕГО АДРЕС"] = manufacturer
+    plants = base.get("assemblyPlants") or []
+    data["СБОРОЧНЫЙ ЗАВОД И ЕГО АДРЕС"] = (plants[0] or {}).get("organization") if plants else None
+
+    engine_type_map = {5767: "Двигатель внутреннего сгорания", 5768: "Электрический двигатель", 5897: "Гибридное транспортное средство"}
+    engine_type_id = chars.get("engineTypeId")
+    data["Двигатель"] = engine_type_map.get(engine_type_id)
+
+    # гибрид
+    hybrid_text = (chars.get("vehicleHybridDesignText") or "").strip()
+    if not hybrid_text:
+        arr = chars.get("vehicleHybridDesigns") or []
+        seen, acc = set(), []
+        for it in arr:
+            t = (it.get("vehicleHybridDesignText") or "").strip()
+            if t and t not in seen:
+                seen.add(t); acc.append(t)
+        hybrid_text = ";\n".join(acc) if acc else None
+    data["Описание гибридного привода"] = hybrid_text
+
+    # ---- helpers
+    def det(key):
+        # ключи совпадают с именами в fetchAllDetailsById
+        return details.get(key) or {}
+
+    # электромашины
+    em = det("machines")
+    em_list = em.get("electricalMachineDetails") or []
+    if em_list:
+        if len(em_list) == 1:
+            m = em_list[0]
+            full = ", ".join(filter(None, [m.get("vehicleComponentMakeName"), m.get("vehicleComponentText")])).strip(", ")
+            data["Электродвигатель электромобиля"] = full or None
+            data["Рабочее напряжение, В"] = str(m.get("electricalMachineVoltageMeasure") or "") or None
+            data["Максимальная 30-минутная мощность, кВт"] = str(m.get("electricMotorPowerMeasure") or "") or None
+        else:
+            marks_types = []
+            kinds, voltages, powers = [], [], []
+            for m in em_list:
+                full = ", ".join(filter(None, [m.get("vehicleComponentMakeName"), m.get("vehicleComponentText")])).strip(", ")
+                if full: marks_types.append(full)
+                if m.get("electricalMachineKindName"): kinds.append(m.get("electricalMachineKindName"))
+                if m.get("electricalMachineVoltageMeasure") is not None: voltages.append(str(m.get("electricalMachineVoltageMeasure")))
+                if m.get("electricMotorPowerMeasure") is not None: powers.append(str(m.get("electricMotorPowerMeasure")))
+            if marks_types: data["Электромашина (марка, тип)"] = ";\n".join(marks_types)
+            if kinds:        data["Вид электромашины"] = ";\n".join(kinds)
+            if voltages:     data["Рабочее напряжение, В (электромашина)"] = ";\n".join(voltages)
+            if powers:       data["Максимальная 30-минутная мощность, кВт (электромашина)"] = ";\n".join(powers)
+
+    # накопитель
+    st = det("storage")
+    sl = st.get("powerStorageDeviceDetails") or []
+    if sl:
+        items = []
+        for s in sl:
+            kind = s.get("powerStorageDeviceTypeName") or ""
+            desc = (s.get("powerStorageDeviceDescription") or "").strip()
+            items.append(kind if not desc or desc == "-" else f"{kind} ({desc})")
+        data["Устройство накопления энергии"] = ";\n".join([i for i in items if i])
+
+    # планировки/кабина/исполнение и пассажировместимость
+    ld = det("layoutDetails")
+    if ld.get("vehicleCarriageSpaceImplementations"):
+        data["Исполнение загрузочного пространства (для категории N)"] = \
+            (ld["vehicleCarriageSpaceImplementations"][0] or {}).get("carriageSpaceImplementation")
+    if ld.get("vehicleCabins"):
+        data["Кабина (для категории N)"] = (ld["vehicleCabins"][0] or {}).get("cabinDescription")
+    vpq = (ld or {}).get("vehiclePassengerQuantities") or []
+    if vpq:
+        q = (vpq[0] or {}).get("passengerQuantity")
+        if q is not None:
+            data["Пассажировместимость (для категорий М2, М3)"] = q
+
+    # сиденья (М1)
+    seats = det("seats")
+    if isinstance(seats, list) and seats:
+        s0 = seats[0] or {}
+        total = s0.get("seatQuantity")
+        desc  = (s0.get("seatDescription") or "").strip()
+        raws  = s0.get("vehicleSeatRawDetails") or []
+        rows  = []
+        for r in raws:
+            o = r.get("seatRawOrdinal"); q = r.get("seatRawQuantity")
+            if o is not None and q is not None: rows.append(f"{o}-{q}")
+        parts = []
+        if total is not None: parts.append(f"Количество мест для сидения: {total}")
+        if desc: parts.append(f"Описание мест для сидения: {desc}")
+        if rows: parts.append("Количество мест спереди/сзади:\n" + "\n".join(rows))
+        if parts:
+            data["Количество мест спереди/ cзади (для категории М1)"] = "\n".join(parts)
+
+    # двигатель ДВС
+    eng = det("engine")
+    ed = (eng or {}).get("engineDetails") or []
+    if ed:
+        e = ed[0] or {}
+        data["Двигатель внутреннего сгорания (марка, тип)"] = ", ".join(filter(None, [e.get("vehicleComponentMakeName"), e.get("vehicleComponentText")])).strip(", ") or None
+        data["- количество и расположение цилиндров"] = " ".join(filter(None, [str(e.get("engineCylinderQuantity") or ""), e.get("engineCylinderArrangementName") or ""])).strip() or None
+        data["- рабочий объем цилиндров, см3"] = e.get("engineCapacityMeasure")
+        data["- степень сжатия"] = e.get("engineCompressionRate")
+        ep = (e.get("enginePowerDetails") or [])
+        if ep:
+            p = ep[0] or {}
+            data["- максимальная мощность, кВт (мин.-1)"] = f"{p.get('engineMaxPowerMeasure')} @ {p.get('engineMaxPowerShaftRotationFrequencyMinMeasure')}"
+        fk = (e.get("vehicleFuelKinds") or [])
+        if fk: data["Топливо"] = (fk[0] or {}).get("fuelKindName")
+        ff = (e.get("engineFuelFeedDetails") or [])
+        if ff: data["Система питания (тип)"] = (ff[0] or {}).get("fuelFeedName")
+        ig = (e.get("vehicleIgnitionDetails") or [])
+        if ig: data["Система зажигания (тип)"] = (ig[0] or {}).get("vehicleIgnitionTypeName")
+        ex = (e.get("exhaustDetails") or [])
+        if ex: data["Система выпуска и нейтрализации отработавших газов"] = (ex[0] or {}).get("exhaustDescription")
+
+    # массы
+    w = det("weight")
+    for it in (w.get("vehicleWeightMeasures") or []):
+        t = (it.get("massTypeName") or "").lower()
+        if "снаряженном" in t:
+            data["Масса транспортного средства в снаряженном состоянии, кг"] = it.get("weight")
+        if "максимальная" in t:
+            data["Технически допустимая максимальная масса транспортного средства, кг"] = it.get("weight")
+
+    # габариты/колёсная база/высота
+    dim = det("dimensions"); hgt = det("height"); wb = det("wheelbase")
+    if dim.get("lengthRanges"): data["Габаритные размеры, мм"]["длина"]  = (dim["lengthRanges"][0] or {}).get("length")
+    if dim.get("widthRanges"):  data["Габаритные размеры, мм"]["ширина"] = (dim["widthRanges"][0] or {}).get("width")
+    if hgt.get("heightRanges"): data["Габаритные размеры, мм"]["высота"] = (hgt["heightRanges"][0] or {}).get("height")
+    elif hgt.get("hightRanges"):  # опечатка в API
+        data["Габаритные размеры, мм"]["высота"] = (hgt["hightRanges"][0] or {}).get("height")
+    if wb.get("wheelbaseMeasureRanges"):
+        data["База, мм"] = " / ".join(str(x.get("wheelbase")) for x in wb["wheelbaseMeasureRanges"] if x.get("wheelbase"))
+
+    # колея и формула/ведущие колёса
+        # колея и формула/ведущие колёса
+    ax = det("axles"); rg = det("runningGear")
+    parts = []
+    for a in (ax.get("vehicleAxleDetails") or []):
+        m = (a.get("axleTrackMeasure") or a.get("axleSweptPathMeasure")
+             or a.get("frontAxleTrackMeasure") or a.get("rearAxleTrackMeasure"))
+        if m is not None:
+            label = f"{m} мм"
+            if a.get("drivingAxleIndicator") == 1:
+                label += " (ведущая)"
+            parts.append(label)
+    if parts:
+        data["Колея передних/задних колес, мм"] = " / ".join(parts)
+
+
+    if isinstance(rg, list) and rg:
+        g = rg[0] or {}
+        formula = g.get("vehicleWheelFormulaName")
+        drive   = ((g.get("poweredWheelLocations") or [{}])[0] or {}).get("wheelLocationName")
+        if formula or drive:
+            data["Колесная формула/ведущие колеса"] = ", ".join(filter(None, [formula, drive]))
+
+        axq = g.get("vehicleAxleQuantity"); whq = g.get("vehicleWheelQuantity")
+        if axq and whq:
+            data["Количество осей/колес (для категории О)"] = f"{axq} / {whq}"
+
+    # кузов
+    bw = det("bodywork")
+    if isinstance(bw, list) and bw:
+        b0 = bw[0] or {}
+        tp = b0.get("vehicleBodyWorkTypeName"); dr = b0.get("doorQuantity")
+        if tp or dr:
+            data["Тип кузова/количество дверей (для категории М1)"] = f"{tp or ''} / {dr or ''}".strip(' /')
+
+    # подвеска
+    susp = det("suspension")
+    for s in (susp.get("vehicleSuspensionDetails") or []):
+        kind = (s.get("vehicleSuspensionKindName") or "").lower()
+        desc = s.get("vehicleSuspensionDescription")
+        if not desc: continue
+        if "1" in kind or "передн" in kind: key = "передняя"
+        elif any(x in kind for x in ["2", "3", "4", "задн"]): key = "задняя"
+        else: continue
+        line = f"{s.get('vehicleSuspensionKindName')}: {desc}"
+        data["Подвеска(тип)"][key] = (data["Подвеска(тип)"].get(key) + "; " if data["Подвеска(тип)"].get(key) else "") + line
+
+    # рулевое
+    stg = det("steering")
+    if stg.get("vehicleSteeringDescriptions"):
+        data["Рулевое управление (марка, тип)"] = (stg["vehicleSteeringDescriptions"][0] or {}).get("description")
+
+    # тормоза
+    br = det("brakes")
+    for b in (br.get("vehicleBrakingSystemDetails") or []):
+        kind = (b.get("vehicleBrakingSystemKindName") or "").lower()
+        target = None
+        if "рабоч" in kind:   target = "рабочая"
+        elif "запасн" in kind: target = "запасная"
+        elif "стояноч" in kind: target = "стояночная"
+        if target:
+            data["Тормозные системы (тип)"][target] = b.get("vehicleBrakingSystemDescription")
+
+    # шины
+    ty = det("tyres")
+    sizes = [ (t or {}).get("vehicleTyreKindSize") for t in (ty.get("vehicleTyreKindInfos") or []) ]
+    sizes = [s.strip() for s in sizes if s]
+    if sizes: data["Шины"] = ";\n".join(sizes)
+
+    # трансмиссия / редукторы / КПП
+    tr = det("transmission")
+    vt = (tr.get("vehicleTransmissionTypes") or [])
+    if vt:
+        t0 = vt[0] or {}
+        data["Трансмиссия"] = t0.get("transTypeName")
+        reducers, gearboxes = [], []
+        for unit in (t0.get("transmissionUnitDetails") or []):
+            kind = (unit.get("unitKindName") or "").lower()
+            desc = (unit.get("transmissionUnitMakeName") or "").strip()
+            box  = (unit.get("transmissionBoxTypeName") or "").strip()
+            if "редуктор" in kind:
+                reducers.append(desc or "Редуктор")
+            elif "коробка" in kind:
+                gearboxes.append(desc or box)
+        if reducers:  data["Редуктор"] = ";\n".join([r for r in reducers if r])
+        if gearboxes: data["Коробка передач (марка, тип)"] = ";\n".join([g for g in gearboxes if g])
+
+    # сцепление
+    cl = det("clutch")
+    vcd = cl.get("vehicleClutchDetails") or []
+    if vcd:
+        data["Сцепление (марка, тип)"] = (vcd[0] or {}).get("vehicleClutchDescription")
+
+    # доп. оборудование
+    ex = det("extras")
+    if ex.get("vehicleEquipmentInfos"):
+        data["Дополнительное оборудование транспортного средства"] = (ex["vehicleEquipmentInfos"][0] or {}).get("vehicleEquipmentText")
+
+    # вернуть только непустые значения
+    # (вкладыши оставим, если внутри хоть что-то заполнилось)
+    def _empty(v):
+        return v in (None, "", []) or (isinstance(v, dict) and all(x in (None, "", []) for x in v.values()))
+    return {k: v for k, v in data.items() if not _empty(v)}
+
 def parse_vehicle_data_from_url(url: str):
     doc_id = extract_doc_id(url)
     if not doc_id:
@@ -179,10 +527,28 @@ def parse_vehicle_data_from_url(url: str):
 
       # --- Универсальный блок заявителя ---
         # --- Универсальный блок заявителя ---
+    data["Номер документа"] = base.get("docNumber")
     private_person_id = base.get("applicantPPId")   # для физлица
     organization_id = base.get("organizationId")    # основной заявитель-организация
     applicant_id = base.get("applicantId")          # заявитель по справочнику (основной случай)
     applicant_str = None
+    private_person_id = base.get("applicantPPId")
+    organization_id = base.get("organizationId")
+    applicant_id = base.get("applicantId")
+
+    if base.get("applicantName"):
+        applicant_str = base.get("applicantName")
+    elif private_person_id:
+        # без сетевых запросов: ставим понятный маркер
+        applicant_str = f"[физ.лицо id={private_person_id}]"
+    elif organization_id:
+        applicant_str = get_org_name_and_address(organization_id) or f"[Организация id={organization_id}]"
+    elif applicant_id:
+        applicant_str = get_org_name_and_address(applicant_id) or f"[Организация id={applicant_id}]"
+    else:
+        applicant_str = "Заявитель не определён"
+
+    data["ЗАЯВИТЕЛЬ И ЕГО АДРЕС"] = applicant_str
 
     token, cookies = load_auth_from_cache()
     headers = {
@@ -228,11 +594,25 @@ def parse_vehicle_data_from_url(url: str):
 
     engine_type_id = chars.get("engineTypeId")  # <-- ВОТ ТУТ ЗАМЕНИТЬ
     data["Двигатель"] = engine_type_map.get(engine_type_id)
-        # 🆕 Гибридные установки
-    hybrid_info = chars.get("vehicleHybridDesigns")
-    if hybrid_info and isinstance(hybrid_info, list) and hybrid_info[0].get("vehicleHybridDesignText"):
-        data["Описание гибридного привода"] = hybrid_info[0]["vehicleHybridDesignText"]
 
+        # Описание гибридного привода
+    hybrid_text = (chars.get("vehicleHybridDesignText") or "").strip()
+
+    if hybrid_text:
+        data["Описание гибридного привода"] = hybrid_text
+    else:
+        arr = chars.get("vehicleHybridDesigns")
+        if isinstance(arr, list) and arr:
+            # Берём только непустые тексты и убираем дубли
+            seen = set()
+            texts = []
+            for item in arr:
+                t = (item.get("vehicleHybridDesignText") or "").strip()
+                if t and t not in seen:
+                    seen.add(t)
+                    texts.append(t)
+            if texts:
+                data["Описание гибридного привода"] = ";\n".join(texts)
 
 
     data["МАРКА"] = (vtype.get("makes") or [{}])[0].get("dicName")
@@ -441,7 +821,7 @@ def parse_vehicle_data_from_url(url: str):
             data["Количество мест спереди/ cзади (для категории М1)"] = "\n".join(final_parts)
         else:
             print("⚠️ Нет данных о сиденьях.")
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
 
 
         # 👇 Далее идёт engine, layout, suspension и т.д.
@@ -488,18 +868,24 @@ def parse_vehicle_data_from_url(url: str):
 
 
         dimensions = get_json("GetVehicleDimensionDetailsByDocId", doc_id)
-        if dimensions.get("lengthRanges"):
+        if dimensions and dimensions.get("lengthRanges"):
             data["Габаритные размеры, мм"]["длина"] = dimensions["lengthRanges"][0].get("length")
-        if dimensions.get("widthRanges"):
+        if dimensions and dimensions.get("widthRanges"):
             data["Габаритные размеры, мм"]["ширина"] = dimensions["widthRanges"][0].get("width")
+
         height = get_json("GetVehicleHightDetailsByDocId", doc_id)
-        if height.get("heightRanges"):
-            data["Габаритные размеры, мм"]["высота"] = height["heightRanges"][0].get("height")
+        if height:
+            if height.get("heightRanges"):
+                data["Габаритные размеры, мм"]["высота"] = (height["heightRanges"][0] or {}).get("height")
+            elif height.get("hightRanges"):
+                data["Габаритные размеры, мм"]["высота"] = (height["hightRanges"][0] or {}).get("height")
+
 
         wheelbase = get_json("GetWheelbaseMeasuresByDocId", doc_id)
-        if wheelbase.get("wheelbaseMeasureRanges"):
+        if wheelbase and wheelbase.get("wheelbaseMeasureRanges"):
             values = [str(i.get("wheelbase")) for i in wheelbase["wheelbaseMeasureRanges"] if i.get("wheelbase")]
             data["База, мм"] = " / ".join(values)
+
 
 
         # === Колея передних/задних колес, мм ===
@@ -532,15 +918,17 @@ def parse_vehicle_data_from_url(url: str):
                             label += " (ведущая)"
                         parts.append(label)
         else:
-            # Для машин
+            # Для машин — пробуем все известные поля колеи
             if axle_details and axle_details.get("vehicleAxleDetails"):
                 for a in axle_details["vehicleAxleDetails"]:
-                    measure = a.get("axleSweptPathMeasure")
+                    measure = (a.get("axleTrackMeasure") or a.get("axleSweptPathMeasure")
+                               or a.get("frontAxleTrackMeasure") or a.get("rearAxleTrackMeasure"))
                     if measure is not None:
                         label = f"{measure} мм"
                         if a.get("drivingAxleIndicator") == 1:
                             label += " (ведущая)"
                         parts.append(label)
+
 
         if parts:
             data["Колея передних/задних колес, мм"] = " / ".join(parts)
@@ -585,19 +973,24 @@ def parse_vehicle_data_from_url(url: str):
 
         running_gear = get_json("GetVehicleRunningGearDetailsByDocId", doc_id)
         if running_gear:
-            gear = running_gear[0]  # Берем первый элемент
-            formula = gear.get("vehicleWheelFormulaName")
-            drive = (gear.get("poweredWheelLocations") or [{}])[0].get("wheelLocationName")
+            if isinstance(running_gear, list) and running_gear:
+                g = running_gear[0] or {}
+            elif isinstance(running_gear, dict):
+                g = running_gear
+            else:
+                g = {}
+
+            formula = g.get("vehicleWheelFormulaName")
+            drive   = ((g.get("poweredWheelLocations") or [{}])[0] or {}).get("wheelLocationName")
             if formula or drive:
                 data["Колесная формула/ведущие колеса"] = f"{formula or ''}, {drive or ''}".strip(', ')
 
-            # Новое: Количество осей и колёс для грузовиков (если есть)
-            axle_qty = gear.get("vehicleAxleQuantity")
-            wheel_qty = gear.get("vehicleWheelQuantity")
-            if axle_qty and wheel_qty:
-                data["Количество осей/колес (для категории О)"] = f"{axle_qty} / {wheel_qty}"
+            axq = g.get("vehicleAxleQuantity"); whq = g.get("vehicleWheelQuantity")
+            if axq and whq:
+                data["Количество осей/колес (для категории О)"] = f"{axq} / {whq}"
         else:
             print("⚠️ Нет данных по ходовой части (running gear).")
+
 
 
         bodywork = get_json("GetVehicleBodyworkDetailsByDocId", doc_id)
@@ -610,14 +1003,20 @@ def parse_vehicle_data_from_url(url: str):
 
 
         steering = get_json("GetVehicleSteeringDetailsByDocId", doc_id)
-        if steering.get("vehicleSteeringDescriptions"):
+        if steering and steering.get("vehicleSteeringDescriptions"):
             data["Рулевое управление (марка, тип)"] = steering["vehicleSteeringDescriptions"][0].get("description")
 
+
         brakes = get_json("GetVehicleBrakingSystemDetailsByDocId", doc_id)
-        for b in brakes.get("vehicleBrakingSystemDetails", []):
-            kind = b.get("vehicleBrakingSystemKindName", "").lower()
-            if kind in data["Тормозные системы (тип)"]:
-                data["Тормозные системы (тип)"][kind] = b.get("vehicleBrakingSystemDescription")
+        if brakes:
+            for b in brakes.get("vehicleBrakingSystemDetails", []):
+                kind = (b.get("vehicleBrakingSystemKindName") or "").lower()
+                target = None
+                if "рабоч" in kind:   target = "рабочая"
+                elif "запасн" in kind: target = "запасная"
+                elif "стояноч" in kind: target = "стояночная"
+                if target:
+                    data["Тормозные системы (тип)"][target] = b.get("vehicleBrakingSystemDescription")
 
             # === Шины ===
         tyres = get_json("GetVehicleTyreKindInfosByDocId", doc_id)
@@ -628,7 +1027,7 @@ def parse_vehicle_data_from_url(url: str):
                 size = tyre.get("vehicleTyreKindSize")
                 if size:
                     sizes.append(size.strip())
-            
+
             if sizes:
                 data["Шины"] = ";\n".join(sizes)  # Разделить шины через ; и перенос строки
             else:
@@ -637,44 +1036,36 @@ def parse_vehicle_data_from_url(url: str):
             print("⚠️ Нет данных по шинам.")
 
         extras = get_json("GetVehicleEquipmentInfosByDocId", doc_id)
-        if extras.get("vehicleEquipmentInfos"):
+        if extras and extras.get("vehicleEquipmentInfos"):
             data["Дополнительное оборудование транспортного средства"] = extras["vehicleEquipmentInfos"][0].get("vehicleEquipmentText")
 
     return data
 
 
 def check_violation_point5(data: dict) -> dict:
-    """
-    Проверяет нарушение пункта 5 для выгруженных данных.
-    Возвращает результат проверки и пояснение.
-    """
-    # 1. Категория "O"
-    is_category_O = (data.get("КАТЕГОРИЯ", "").strip().upper() == "O" or
-                     (data.get("КАТЕГОРИЯ", "").strip().upper().startswith("O")))
+    is_category_O = (str(data.get("КАТЕГОРИЯ", "")).strip().upper().startswith("O"))
 
-    # 2. Заявитель физ.лицо (ищем "физ.лицо" в строке заявителя)
     applicant = data.get("ЗАЯВИТЕЛЬ И ЕГО АДРЕС", "") or ""
     is_individual = "физ.лицо" in applicant.lower()
 
-    # 3. Масса > 3500 кг
     try:
         mass = float(str(data.get("Технически допустимая максимальная масса транспортного средства, кг") or "0").replace(",", ".").replace(" ", ""))
     except Exception:
-        mass = 0
+        mass = 0.0
     is_over_3500 = mass > 3500
 
-    # 4. Исключения: по описанию (можно доработать)
     description_fields = [
-        data.get("Тип", ""),
+        data.get("ТИП", ""),
         data.get("КОММЕРЧЕСКОЕ НАИМЕНОВАНИЕ", ""),
         data.get("Тип кузова/количество дверей (для категории М1)", ""),
         data.get("Дополнительное оборудование транспортного средства", ""),
     ]
-    description = " ".join([str(x or "") for x in description_fields]).lower()
+    description = " ".join(map(lambda x: str(x or ""), description_fields)).lower()
+
     is_exception = (
-        "перевозк" in description and "автомоб" in description
-        or "дом" in description and "прицеп" in description
-        or "автоприцеп" in description and ("жиль" in description or "турист" in description)
+        ("перевозк" in description and "автомоб" in description) or
+        ("дом" in description and "прицеп" in description) or
+        ("автоприцеп" in description and ("жиль" in description or "турист" in description))
     )
 
     result = {
